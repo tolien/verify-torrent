@@ -7,9 +7,10 @@ edition = "2018"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-serde_bencode = "0.2.2"
+serde_bencode = "0.2.3"
 clap = "2.33.3"
-base64 = "0.12.3"
-serde_derive = "1.0.116"
+serde_derive = "1.0.118"
 serde_bytes = "0.11.5"
-serde = "1.0.116"
+serde = "1.0.118"
+sha1 = "0.6.0"
+tokio = { version = "1.0.1", features = ["full"] }
