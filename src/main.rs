@@ -127,7 +127,7 @@ async fn verify_torrent(torrent: &Torrent) {
     let piece_hashes = get_piece_hashes(torrent);
 
     println!(
-        "{} files, pieces size {} bytes, {} pieces",
+        "{} files, piece size {} bytes, {} pieces",
         file_list.len(),
         piece_size,
         piece_hashes.len()
