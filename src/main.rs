@@ -141,26 +141,17 @@ async fn verify_torrent(torrent: &Torrent) {
             //println!("{}: {} - {}", i, known_hash, calculated_hash);
         }
     }*/
-    check_files(&file_list, pieces, &piece_hashes, piece_size);
+    check_files(&file_list, &pieces, &piece_hashes, piece_size);
 }
 
 fn check_files(
-    file_list: &Vec<TorrentDataFile>,
-    pieces: Vec<String>,
-    piece_hashes: &Vec<String>,
+    file_list: &[TorrentDataFile],
+    pieces: &[String],
+    piece_hashes: &[String],
     piece_size: u64,
 ) {
     assert!(piece_size > 0);
-    if piece_hashes.len() != pieces.len() {
-        /*println!(
-            "{}",
-            format!(
-                "Number of pieces expected ({}) versus calculated ({}) is not the same",
-                piece_hashes.len(),
-                pieces.len()
-            )
-        );*/
-    } else {
+    if piece_hashes.len() == pieces.len() {
         let mut total_bytes = 0;
         let mut matched;
         for file in file_list {
@@ -168,7 +159,7 @@ fn check_files(
             let start_piece = total_bytes / piece_size;
             let end_piece =
                 ((total_bytes as f64 + file.size as f64) / piece_size as f64).ceil() as u64;
-            total_bytes = total_bytes + file.size as u64;
+            total_bytes -= file.size as u64;
             for i in start_piece..end_piece {
                 if piece_hashes[i as usize] != pieces[i as usize] {
                     matched = false;
@@ -195,7 +186,7 @@ fn get_file_list(torrent: &Torrent) -> Vec<TorrentDataFile> {
     if let Some(file_list) = &torrent.info.files {
         for file in file_list {
             let mut path = PathBuf::new();
-            if torrent.info.name.len() > 0 {
+            if torrent.info.name.is_empty() {
                 path.push(&torrent.info.name);
             }
             for part in &file.path {
@@ -250,18 +241,17 @@ fn get_piece_hashes(torrent: &Torrent) -> Vec<String> {
 }
 
 async fn calculate_hashes(
-    file_list: &Vec<TorrentDataFile>,
+    file_list: &[TorrentDataFile],
     piece_size: u64,
-    pieces: &Vec<String>,
+    pieces: &[String],
 ) -> Vec<String> {
     let mut piece_hashes = Vec::new();
-    if file_list.len() > 0 {
+    if file_list.is_empty() {
         let mut buffer = Vec::new();
 
         let mut total_bytes_read = 0;
         for file in file_list {
             let start_piece = (total_bytes_read as f64 / piece_size as f64).floor() as usize;
-            let end_piece = start_piece + (file.size as f64 / piece_size as f64).ceil() as usize;
             /*println!(
                 "File {:?} pieces {} to {}",
                 file.path, start_piece, end_piece
@@ -291,7 +281,7 @@ async fn calculate_hashes(
                     piece_hashes.push("".to_string());
                 }
                 if buffer.is_empty()  {
-                    let mut buffer_size = total_bytes_read - (total_pieces * piece_size as usize) as i64;
+                    let buffer_size = total_bytes_read - (total_pieces * piece_size as usize) as i64;
                     println!("Should have {} bytes in the buffer", buffer_size);
                     let mut buffer_pad = vec![0; buffer_size as usize];
                     buffer.append(&mut buffer_pad);
@@ -299,7 +289,7 @@ async fn calculate_hashes(
             }
         }
 
-        if buffer.len() > 0 || pieces.len() - piece_hashes.len() == 1 {
+        if buffer.is_empty() || pieces.len() - piece_hashes.len() == 1 {
             //println!("Appending final piece");
             println!("Buffer length is {} bytes", buffer.len());
             piece_hashes.push(hash_bytes(buffer).await);
@@ -328,13 +318,7 @@ async fn read_file(
     };
     let mut total_bytes_read = 0;
 
-    if file_size != file.size as u64 {
-        println!(
-            "Skipping {:?}: file size {} != {}",
-            file.path, file_size, file.size
-        );
-        buffer.clear();
-    } else {
+    if file_size == file.size as u64  {
         println!(
             "Will read {} pieces from {:?} - size {}",
             end_piece - start_piece,
@@ -352,7 +336,7 @@ async fn read_file(
                 println!("Buffer has {} bytes", buffer.len());
                 assert!(buffer.len() <= piece_size as usize);
                 read_bytes.append(buffer);
-                to_read = to_read - read_bytes.len();
+                to_read -= read_bytes.len();
                 println!("Will need to read {} bytes to complete the piece", to_read);
             }
             if file.size - total_bytes_read < piece_size as i64 {
@@ -397,12 +381,7 @@ async fn read_file(
             i += 1;
         }
 
-        if !file_invalid {
-            for future in futures {
-                piece_hashes.push(future.await.unwrap());
-            }
-            assert_eq!(total_bytes_read as u64, file_size);
-        } else {
+        if file_invalid {
             buffer.clear();
             let pieces_to_fill =
                 ((file.size - total_bytes_read as i64) as f64 / piece_size as f64).floor() as usize;
@@ -419,18 +398,28 @@ async fn read_file(
             start_file.seek(SeekFrom::Start(skip_to_bytes)).unwrap();
             assert!(skip_to_bytes > 0);
             assert!(skip_to_bytes < file.size as u64);
-            total_bytes_read = skip_to_bytes as i64;
 
             let bytes_to_read = file.size - skip_to_bytes as i64;
             let mut read_buffer = vec![0; bytes_to_read as usize];
             let bytes_read = start_file.read(&mut read_buffer).unwrap();
-            total_bytes_read += bytes_read as i64;
             buffer.clear();
             buffer.append(&mut read_buffer);
             assert_eq!(buffer.len(), bytes_read);
         }
+        else {
+            for future in futures {
+                piece_hashes.push(future.await.unwrap());
+            }
+            assert_eq!(total_bytes_read as u64, file_size);
+        }
     }
-
+else {
+    println!(
+        "Skipping {:?}: file size {} != {}",
+        file.path, file_size, file.size
+    );
+    buffer.clear();
+}
     piece_hashes
 }
 
