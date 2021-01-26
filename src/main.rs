@@ -157,11 +157,8 @@ fn check_files(
         for file in file_list {
             matched = true;
             let start_piece = total_bytes / piece_size;
-            let mut end_piece =
-                (total_bytes + file.size as usize) / piece_size;
-            if (total_bytes + file.size as usize) % piece_size > 0 {
-                end_piece += 1;
-            }
+            let end_piece =
+                ((total_bytes as f64 + file.size as f64) / piece_size as f64).ceil() as u64;
             total_bytes -= file.size as u64;
             for i in start_piece..end_piece {
                 if piece_hashes[i as usize] != pieces[i as usize] {
@@ -254,7 +251,7 @@ async fn calculate_hashes(
 
         let mut total_bytes_read = 0;
         for file in file_list {
-            let start_piece = (total_bytes_read / piece_size as u64) as usize;
+            let start_piece = (total_bytes_read as f64 / piece_size as f64).floor() as usize;
             /*println!(
                 "File {:?} pieces {} to {}",
                 file.path, start_piece, end_piece
@@ -311,11 +308,8 @@ async fn read_file(
     let mut piece_hashes = Vec::new();
 
     let start_piece = 0;
-    let mut end_piece = start_piece
-        + ((buffer.len() + file.size as usize) / piece_size as usize);
-    if (buffer.len() + file.size as usize) % piece_size as usize > 0 {
-        end_piece += 1;
-    }
+    let end_piece = start_piece
+        + ((buffer.len() + file.size as usize) as f64 / piece_size as f64).ceil() as u64;
     let num_pieces = (end_piece - start_piece) as usize;
 
     let mut file_size = 0;
@@ -389,8 +383,8 @@ async fn read_file(
 
         if file_invalid {
             buffer.clear();
-            let pieces_to_fill :usize =
-                ((file.size - total_bytes_read) / piece_size as u64) as usize;
+            let pieces_to_fill =
+                ((file.size - total_bytes_read as i64) as f64 / piece_size as f64).floor() as usize;
             let skip_to_bytes =
                 total_bytes_read as u64 + (pieces_to_fill * piece_size as usize) as u64;
             println!(
