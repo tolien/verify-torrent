@@ -8,6 +8,7 @@ extern crate serde_bytes;
 use clap::{App, Arg};
 use serde_bencode::de;
 use serde_bytes::ByteBuf;
+use std::convert::TryInto;
 use std::fs;
 use std::fs::File;
 use std::io::prelude::*;
@@ -21,7 +22,7 @@ struct Node(String, u64);
 struct TorrentFile {
     path: Vec<String>,
     #[serde(rename = "length")]
-    size: i64,
+    size: u64,
     #[serde(default)]
     md5sum: Option<String>,
 }
@@ -157,11 +158,14 @@ fn check_files(
         for file in file_list {
             matched = true;
             let start_piece = total_bytes / piece_size;
-            let end_piece =
-                ((total_bytes as f64 + file.size as f64) / piece_size as f64).ceil() as u64;
+            let mut end_piece = (total_bytes + file.size as u64) / piece_size;
+            if (total_bytes + file.size as u64) % piece_size > 0 {
+                end_piece += 1;
+            }
             total_bytes -= file.size as u64;
             for i in start_piece..end_piece {
-                if piece_hashes[i as usize] != pieces[i as usize] {
+                let index: usize = i.try_into().unwrap();
+                if piece_hashes.get(index) != pieces.get(index) {
                     matched = false;
                 }
             }
@@ -177,7 +181,7 @@ fn check_files(
 #[derive(Debug)]
 pub struct TorrentDataFile {
     path: PathBuf,
-    size: i64,
+    size: u64,
     md5sum: Option<String>,
 }
 fn get_file_list(torrent: &Torrent) -> Vec<TorrentDataFile> {
@@ -215,7 +219,7 @@ fn get_file_list(torrent: &Torrent) -> Vec<TorrentDataFile> {
         }
         let torrent_file = TorrentDataFile {
             path,
-            size: torrent.info.length.unwrap() as i64,
+            size: torrent.info.length.unwrap() as u64,
             md5sum,
         };
         files.push(torrent_file);
@@ -249,9 +253,9 @@ async fn calculate_hashes(
     if file_list.is_empty() {
         let mut buffer = Vec::new();
 
-        let mut total_bytes_read = 0;
+        let mut total_bytes_read: u64 = 0;
         for file in file_list {
-            let start_piece = (total_bytes_read as f64 / piece_size as f64).floor() as usize;
+            let start_piece: usize = (total_bytes_read / piece_size).try_into().unwrap();
             /*println!(
                 "File {:?} pieces {} to {}",
                 file.path, start_piece, end_piece
@@ -270,7 +274,7 @@ async fn calculate_hashes(
                 buffer.len()
             );*/
             piece_hashes.append(&mut pieces_for_file);
-            let total_pieces = (total_bytes_read / piece_size as i64) as usize;
+            let total_pieces: usize = (total_bytes_read / piece_size).try_into().unwrap();
             if total_pieces > piece_hashes.len() {
                 /*println!(
                     "Should have read {} pieces by now - have actually read {}.",
@@ -280,10 +284,10 @@ async fn calculate_hashes(
                 for _i in 0..total_pieces - piece_hashes.len() {
                     piece_hashes.push("".to_string());
                 }
-                if buffer.is_empty()  {
-                    let buffer_size = total_bytes_read - (total_pieces * piece_size as usize) as i64;
+                if buffer.is_empty() {
+                    let buffer_size = total_bytes_read - file.size;
                     println!("Should have {} bytes in the buffer", buffer_size);
-                    let mut buffer_pad = vec![0; buffer_size as usize];
+                    let mut buffer_pad = vec![0; buffer_size.try_into().unwrap()];
                     buffer.append(&mut buffer_pad);
                 }
             }
@@ -308,9 +312,14 @@ async fn read_file(
     let mut piece_hashes = Vec::new();
 
     let start_piece = 0;
-    let end_piece = start_piece
-        + ((buffer.len() + file.size as usize) as f64 / piece_size as f64).ceil() as u64;
-    let num_pieces = (end_piece - start_piece) as usize;
+    let mut end_piece: usize = ((buffer.len() as u64 + file.size) / piece_size)
+        .try_into()
+        .unwrap();
+    if (buffer.len() as u64 + file.size) % piece_size > 0 {
+        end_piece += 1;
+    }
+
+    let num_pieces = end_piece - start_piece;
 
     let mut file_size = 0;
     if let Ok(metadata) = fs::metadata(&file.path) {
@@ -318,7 +327,7 @@ async fn read_file(
     };
     let mut total_bytes_read = 0;
 
-    if file_size == file.size as u64  {
+    if file_size == file.size as u64 {
         println!(
             "Will read {} pieces from {:?} - size {}",
             end_piece - start_piece,
@@ -330,26 +339,26 @@ async fn read_file(
         let mut file_invalid = false;
         let mut i = 0;
         while !file_invalid && i < num_pieces {
-            let mut to_read = piece_size as usize;
+            let mut to_read = piece_size;
             let mut read_bytes = Vec::new();
             if !buffer.is_empty() {
                 println!("Buffer has {} bytes", buffer.len());
-                assert!(buffer.len() <= piece_size as usize);
+                assert!(buffer.len() as u64 <= piece_size);
                 read_bytes.append(buffer);
-                to_read -= read_bytes.len();
+                to_read -= read_bytes.len() as u64;
                 println!("Will need to read {} bytes to complete the piece", to_read);
             }
-            if file.size - total_bytes_read < piece_size as i64 {
-                to_read = (file.size - total_bytes_read) as usize;
+            if file.size - total_bytes_read < piece_size as u64 {
+                to_read = file.size - total_bytes_read;
                 println!(
                     "Setting read buffer to {} bytes to avoid running off file end",
                     to_read
                 );
             }
-            let mut read_buffer = vec![0; to_read];
+            let mut read_buffer = vec![0; to_read.try_into().unwrap()];
             let bytes_read = start_file.read(&mut read_buffer).unwrap();
-            total_bytes_read += bytes_read as i64;
-            if read_bytes.len() + bytes_read == piece_size as usize {
+            total_bytes_read += bytes_read as u64;
+            if (read_bytes.len() + bytes_read) as u64 == piece_size {
                 read_bytes.append(&mut read_buffer);
                 let digest_future = hash_bytes(read_bytes);
                 let result = tokio::spawn(async move {
@@ -383,43 +392,42 @@ async fn read_file(
 
         if file_invalid {
             buffer.clear();
-            let pieces_to_fill =
-                ((file.size - total_bytes_read as i64) as f64 / piece_size as f64).floor() as usize;
+            let pieces_to_fill: usize = ((file.size - total_bytes_read as u64) / piece_size)
+                .try_into()
+                .unwrap();
             let skip_to_bytes =
-                total_bytes_read as u64 + (pieces_to_fill * piece_size as usize) as u64;
+                total_bytes_read as u64 + (pieces_to_fill as u64 * piece_size) as u64;
             println!(
                 "Have read {} bytes, there are {} pieces outstanding",
                 total_bytes_read, pieces_to_fill
             );
             println!(
                 "Skip forward to {} bytes from file start to fill the buffer for the next file - buffer will have {} bytes",
-                skip_to_bytes, file.size - skip_to_bytes as i64
+                skip_to_bytes, file.size - skip_to_bytes as u64
             );
             start_file.seek(SeekFrom::Start(skip_to_bytes)).unwrap();
             assert!(skip_to_bytes > 0);
             assert!(skip_to_bytes < file.size as u64);
 
-            let bytes_to_read = file.size - skip_to_bytes as i64;
-            let mut read_buffer = vec![0; bytes_to_read as usize];
+            let bytes_to_read = file.size - skip_to_bytes as u64;
+            let mut read_buffer = vec![0; bytes_to_read.try_into().unwrap()];
             let bytes_read = start_file.read(&mut read_buffer).unwrap();
             buffer.clear();
             buffer.append(&mut read_buffer);
             assert_eq!(buffer.len(), bytes_read);
-        }
-        else {
+        } else {
             for future in futures {
                 piece_hashes.push(future.await.unwrap());
             }
             assert_eq!(total_bytes_read as u64, file_size);
         }
+    } else {
+        println!(
+            "Skipping {:?}: file size {} != {}",
+            file.path, file_size, file.size
+        );
+        buffer.clear();
     }
-else {
-    println!(
-        "Skipping {:?}: file size {} != {}",
-        file.path, file_size, file.size
-    );
-    buffer.clear();
-}
     piece_hashes
 }
 
