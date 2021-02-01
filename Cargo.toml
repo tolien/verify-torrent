@@ -13,4 +13,4 @@ serde_derive = "1.0.118"
 serde_bytes = "0.11.5"
 serde = "1.0.118"
 sha1 = "0.6.0"
-tokio = { version = "1.0.1", features = ["full"] }
+tokio = { version = "1.1.1", features = ["full"] }
