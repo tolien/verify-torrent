@@ -13,6 +13,7 @@ use std::fs;
 use std::fs::File;
 use std::io::prelude::*;
 use std::io::SeekFrom;
+use std::io::Error;
 use std::path::PathBuf;
 
 #[derive(Debug, Deserialize)]
@@ -311,15 +312,12 @@ async fn read_file(
 ) -> Vec<String> {
     let mut piece_hashes = Vec::new();
 
-    let start_piece = 0;
-    let mut end_piece: usize = ((buffer.len() as u64 + file.size) / piece_size)
+    let mut num_pieces: usize = ((buffer.len() as u64 + file.size) / piece_size)
         .try_into()
         .unwrap();
     if (buffer.len() as u64 + file.size) % piece_size > 0 {
-        end_piece += 1;
+        num_pieces += 1;
     }
-
-    let num_pieces = end_piece - start_piece;
 
     let mut file_size = 0;
     if let Ok(metadata) = fs::metadata(&file.path) {
@@ -328,12 +326,6 @@ async fn read_file(
     let mut total_bytes_read = 0;
 
     if file_size == file.size as u64 {
-        println!(
-            "Will read {} pieces from {:?} - size {}",
-            end_piece - start_piece,
-            file.path,
-            file_size
-        );
         let mut start_file = File::open(&file.path).unwrap();
         let mut futures = Vec::new();
         let mut file_invalid = false;
@@ -342,21 +334,16 @@ async fn read_file(
             let mut to_read = piece_size;
             let mut read_bytes = Vec::new();
             if !buffer.is_empty() {
-                println!("Buffer has {} bytes", buffer.len());
                 assert!(buffer.len() as u64 <= piece_size);
                 read_bytes.append(buffer);
                 to_read -= read_bytes.len() as u64;
-                println!("Will need to read {} bytes to complete the piece", to_read);
             }
             if file.size - total_bytes_read < piece_size as u64 {
                 to_read = file.size - total_bytes_read;
-                println!(
-                    "Setting read buffer to {} bytes to avoid running off file end",
-                    to_read
-                );
             }
-            let mut read_buffer = vec![0; to_read.try_into().unwrap()];
-            let bytes_read = start_file.read(&mut read_buffer).unwrap();
+
+            let mut read_buffer = read_bytes_from_file(&mut start_file, to_read.try_into().unwrap()).unwrap();
+            let bytes_read = read_buffer.len();
             total_bytes_read += bytes_read as u64;
             if (read_bytes.len() + bytes_read) as u64 == piece_size {
                 read_bytes.append(&mut read_buffer);
@@ -379,10 +366,6 @@ async fn read_file(
                 buffer.clear();
             } else if bytes_read > 0 {
                 buffer.clear();
-                println!(
-                    "Couldn't read a full piece, filling buffer with {} bytes",
-                    bytes_read
-                );
                 buffer.append(&mut read_bytes);
                 read_buffer.truncate(bytes_read + 1);
                 buffer.append(&mut read_buffer);
@@ -391,7 +374,6 @@ async fn read_file(
         }
 
         if file_invalid {
-            buffer.clear();
             let pieces_to_fill: usize = ((file.size - total_bytes_read as u64) / piece_size)
                 .try_into()
                 .unwrap();
@@ -401,20 +383,16 @@ async fn read_file(
                 "Have read {} bytes, there are {} pieces outstanding",
                 total_bytes_read, pieces_to_fill
             );
-            println!(
-                "Skip forward to {} bytes from file start to fill the buffer for the next file - buffer will have {} bytes",
-                skip_to_bytes, file.size - skip_to_bytes as u64
-            );
-            start_file.seek(SeekFrom::Start(skip_to_bytes)).unwrap();
             assert!(skip_to_bytes > 0);
             assert!(skip_to_bytes < file.size as u64);
 
-            let bytes_to_read = file.size - skip_to_bytes as u64;
-            let mut read_buffer = vec![0; bytes_to_read.try_into().unwrap()];
-            let bytes_read = start_file.read(&mut read_buffer).unwrap();
+            start_file.seek(SeekFrom::Start(skip_to_bytes)).unwrap();
+
+            let to_read = file.size - skip_to_bytes;
+            let mut read_buffer= read_bytes_from_file(&mut start_file, to_read.try_into().unwrap()).unwrap();
             buffer.clear();
             buffer.append(&mut read_buffer);
-            assert_eq!(buffer.len(), bytes_read);
+            assert_eq!(buffer.len() as u64, to_read);
         } else {
             for future in futures {
                 piece_hashes.push(future.await.unwrap());
@@ -422,13 +400,20 @@ async fn read_file(
             assert_eq!(total_bytes_read as u64, file_size);
         }
     } else {
-        println!(
-            "Skipping {:?}: file size {} != {}",
-            file.path, file_size, file.size
-        );
         buffer.clear();
     }
     piece_hashes
+}
+
+fn read_bytes_from_file(file: &mut File, bytes_to_read: usize) -> Result<Vec<u8>, Error> {
+    let mut read_buffer = vec![0; bytes_to_read];
+    let read_result = file.read(&mut read_buffer);
+    if read_result.is_ok() {
+        Ok(read_buffer)
+    }
+    else {
+        Err(read_result.err().unwrap())
+    }
 }
 
 async fn hash_bytes(bytes: Vec<u8>) -> String {
