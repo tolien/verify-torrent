@@ -191,7 +191,7 @@ fn get_file_list(torrent: &Torrent) -> Vec<TorrentDataFile> {
     if let Some(file_list) = &torrent.info.files {
         for file in file_list {
             let mut path = PathBuf::new();
-            if torrent.info.name.is_empty() {
+            if !torrent.info.name.is_empty() {
                 path.push(&torrent.info.name);
             }
             for part in &file.path {
@@ -251,7 +251,7 @@ async fn calculate_hashes(
     pieces: &[String],
 ) -> Vec<String> {
     let mut piece_hashes = Vec::new();
-    if file_list.is_empty() {
+    if !file_list.is_empty() {
         let mut buffer = Vec::new();
 
         let mut total_bytes_read: u64 = 0;
@@ -294,7 +294,7 @@ async fn calculate_hashes(
             }
         }
 
-        if buffer.is_empty() || pieces.len() - piece_hashes.len() == 1 {
+        if !buffer.is_empty() || pieces.len() - piece_hashes.len() == 1 {
             //println!("Appending final piece");
             println!("Buffer length is {} bytes", buffer.len());
             piece_hashes.push(hash_bytes(buffer).await);
