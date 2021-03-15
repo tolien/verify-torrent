@@ -156,6 +156,8 @@ fn check_files(
     if piece_hashes.len() == pieces.len() {
         let mut total_bytes = 0;
         let mut matched;
+        let mut valid = 0;
+        let mut invalid = 0;
         for file in file_list {
             matched = true;
             let start_piece = total_bytes / piece_size;
@@ -172,10 +174,13 @@ fn check_files(
             }
             if matched {
                 println!("{}", format!("{:?}", file.path));
+                valid += 1;
             } else {
                 //println!("{:?} is not valid", file.path);
+                invalid += 1;
             }
         }
+        println!("{} ok, {} not ok", valid, invalid);
     }
 }
 
