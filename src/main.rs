@@ -290,10 +290,12 @@ async fn calculate_hashes(
                 for _i in 0..total_pieces - piece_hashes.len() {
                     piece_hashes.push("".to_string());
                 }
-                if buffer.is_empty() {
-                    let buffer_size = total_bytes_read - file.size;
-                    println!("Should have {} bytes in the buffer", buffer_size);
-                    let mut buffer_pad = vec![0; buffer_size.try_into().unwrap()];
+                let expected_buffer_size = total_bytes_read % piece_size;
+                assert!(expected_buffer_size < piece_size);
+                if buffer.len() as u64 != expected_buffer_size {
+                    buffer.clear();
+                    println!("Should have {} bytes in the buffer, actually have {} bytes", expected_buffer_size, buffer.len());
+                    let mut buffer_pad = vec![0; expected_buffer_size.try_into().unwrap()];
                     buffer.append(&mut buffer_pad);
                 }
             }
@@ -329,6 +331,8 @@ async fn read_file(
         file_size = metadata.len();
     };
     let mut total_bytes_read = 0;
+
+    let piece_offset_from_file_start = if buffer.is_empty() { 0 } else { piece_size - buffer.len() as u64 };
 
     if file_size == file.size as u64 {
         let mut start_file = File::open(&file.path).unwrap();
@@ -379,9 +383,9 @@ async fn read_file(
         }
 
         if file_invalid {
-            let pieces_to_fill: usize = ((file.size - total_bytes_read as u64) / piece_size)
-                .try_into()
-                .unwrap();
+            let pieces_to_fill: usize = ((piece_offset_from_file_start + ((num_pieces - 2) as u64 * piece_size)) / piece_size) as usize;
+
+            println!("File is invalid, have read {} bytes", total_bytes_read);
             let skip_to_bytes =
                 total_bytes_read as u64 + (pieces_to_fill as u64 * piece_size) as u64;
             println!(
