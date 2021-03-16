@@ -165,7 +165,7 @@ fn check_files(
             if (total_bytes + file.size as u64) % piece_size > 0 {
                 end_piece += 1;
             }
-            total_bytes -= file.size as u64;
+            total_bytes += file.size as u64;
             for i in start_piece..end_piece {
                 let index: usize = i.try_into().unwrap();
                 if piece_hashes.get(index) != pieces.get(index) {
