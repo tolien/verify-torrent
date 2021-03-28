@@ -383,7 +383,7 @@ async fn read_file(
         }
 
         if file_invalid {
-            let pieces_to_fill: usize = ((piece_offset_from_file_start + ((num_pieces - 2) as u64 * piece_size)) / piece_size) as usize;
+            let pieces_to_fill = (piece_offset_from_file_start + ((num_pieces - 2) as u64 * piece_size)) / piece_size;
 
             println!("File is invalid, have read {} bytes", total_bytes_read);
             let skip_to_bytes =
