@@ -16,6 +16,14 @@ use std::io::SeekFrom;
 use std::io::Error;
 use std::path::PathBuf;
 
+use log::{debug, error, info, trace};
+use log::LevelFilter;
+use log4rs::append::console::ConsoleAppender;
+use log4rs::config::{Appender, Logger, Root};
+use log4rs::encode::pattern::PatternEncoder;
+use log4rs::Handle;
+
+
 #[derive(Debug, Deserialize)]
 struct Node(String, u64);
 
@@ -97,6 +105,7 @@ struct Torrent {
 
 #[tokio::main]
 async fn main() {
+
     let matches = App::new("torrent-verify")
         .arg(
             Arg::with_name("file")
@@ -105,20 +114,43 @@ async fn main() {
                 .takes_value(true)
                 .required(true),
         )
+        .arg(
+            Arg::with_name("quiet")
+                .short("-q")
+                .help("Quiet mode. Don't show progress.")
+        )
+        .arg(
+            Arg::with_name("list_type")
+                .long("list")
+                .help("list files of type")
+                .takes_value(true)
+                .possible_values(&["notfound", "bad", "ok", "unverified"])
+        )
+        .arg(
+            Arg::with_name("list_type")
+                .long("list0")
+                .help("list files of type, separated by nulls (ideal for xargs)")
+                .takes_value(true)
+                .possible_values(&["notfound", "bad", "ok", "unverified"])
+        )
         .get_matches();
 
     if let Some(torrent_file) = matches.value_of("file") {
         let mut file = File::open(torrent_file).unwrap_or_else(|_| {
             panic!("Couldn't open torrent");
         });
-        println!("{}", format!("Checking torrent {:?}", torrent_file));
+
+        let quiet_mode = matches.is_present("quiet");
+        bootstrap_logger(quiet_mode);
+
+        info!("{}", format!("Checking torrent {:?}", torrent_file));
         let mut buffer = Vec::new();
         match file.read_to_end(&mut buffer) {
             Ok(_) => match de::from_bytes::<Torrent>(&buffer) {
                 Ok(t) => verify_torrent(&t).await,
-                Err(e) => println!("ERROR: {:?}", e),
+                Err(e) => error!("ERROR: {:?}", e),
             },
-            Err(e) => println!("ERROR: {:?}", e),
+            Err(e) => error!("ERROR: {:?}", e),
         }
     }
 }
@@ -128,7 +160,7 @@ async fn verify_torrent(torrent: &Torrent) {
     let piece_size = get_piece_size(torrent);
     let piece_hashes = get_piece_hashes(torrent);
 
-    println!(
+    debug!(
         "{} files, piece size {} bytes, {} pieces",
         file_list.len(),
         piece_size,
@@ -136,13 +168,6 @@ async fn verify_torrent(torrent: &Torrent) {
     );
     let pieces = calculate_hashes(&file_list, piece_size, &piece_hashes).await;
 
-    /*for i in 0..pieces.len() {
-        let known_hash = &pieces[i];
-        let calculated_hash = &piece_hashes[i];
-        if known_hash != calculated_hash {
-            //println!("{}: {} - {}", i, known_hash, calculated_hash);
-        }
-    }*/
     check_files(&file_list, &pieces, &piece_hashes, piece_size);
 }
 
@@ -173,14 +198,14 @@ fn check_files(
                 }
             }
             if matched {
-                println!("{}", format!("{:?}", file.path));
+                info!("{}", format!("{:?}", file.path));
                 valid += 1;
             } else {
                 //println!("{:?} is not valid", file.path);
                 invalid += 1;
             }
         }
-        println!("{} ok, {} not ok", valid, invalid);
+        info!("{} ok, {} not ok", valid, invalid);
     }
 }
 
@@ -262,48 +287,50 @@ async fn calculate_hashes(
         let mut total_bytes_read: u64 = 0;
         for file in file_list {
             let start_piece: usize = (total_bytes_read / piece_size).try_into().unwrap();
-            /*println!(
-                "File {:?} pieces {} to {}",
-                file.path, start_piece, end_piece
-            );*/
-            let mut pieces_for_file = read_file(
+            let pieces_result = read_file(
                 &mut buffer,
                 file,
                 piece_size,
                 &pieces[start_piece..pieces.len()],
             )
             .await;
-            total_bytes_read += file.size;
-            /*println!(
-                "Read {} pieces, buffer length is {} bytes",
-                pieces_for_file.len(),
-                buffer.len()
-            );*/
-            piece_hashes.append(&mut pieces_for_file);
-            let total_pieces: usize = (total_bytes_read / piece_size).try_into().unwrap();
-            if total_pieces > piece_hashes.len() {
-                /*println!(
-                    "Should have read {} pieces by now - have actually read {}.",
-                    total_pieces,
-                    piece_hashes.len()
-                );*/
-                for _i in 0..total_pieces - piece_hashes.len() {
-                    piece_hashes.push("".to_string());
-                }
-                let expected_buffer_size = total_bytes_read % piece_size;
-                assert!(expected_buffer_size < piece_size);
-                if buffer.len() as u64 != expected_buffer_size {
-                    buffer.clear();
-                    println!("Should have {} bytes in the buffer, actually have {} bytes", expected_buffer_size, buffer.len());
-                    let mut buffer_pad = vec![0; expected_buffer_size.try_into().unwrap()];
-                    buffer.append(&mut buffer_pad);
+            if let Ok(mut pieces_for_file) = pieces_result {
+
+                total_bytes_read += file.size;
+                debug!(
+                    "Read {} pieces, buffer length is {} bytes",
+                    pieces_for_file.len(),
+                    buffer.len()
+                );
+                piece_hashes.append(&mut pieces_for_file);
+                let total_pieces: usize = (total_bytes_read / piece_size).try_into().unwrap();
+                debug!("Total bytes read: {}, file size: {}", total_bytes_read, file.size);
+                if total_pieces > piece_hashes.len() {
+                    trace!(
+                        "Should have read {} pieces by now - have actually read {}.",
+                        total_pieces,
+                        piece_hashes.len()
+                    );
+                    for _i in 0..total_pieces - piece_hashes.len() {
+                        piece_hashes.push("".to_string());
+                    }
+                    let expected_buffer_size = total_bytes_read % piece_size;
+                    assert!(expected_buffer_size < piece_size);
+                    if buffer.len() as u64 != expected_buffer_size {
+                        buffer.clear();
+                        trace!("Should have {} bytes in the buffer, actually have {} bytes", expected_buffer_size, buffer.len());
+                        let mut buffer_pad = vec![0; expected_buffer_size.try_into().unwrap()];
+                        buffer.append(&mut buffer_pad);
+                    }
                 }
             }
+            else {
+
+            };
         }
 
         if !buffer.is_empty() || pieces.len() - piece_hashes.len() == 1 {
-            //println!("Appending final piece");
-            println!("Buffer length is {} bytes", buffer.len());
+            trace!("Buffer length is {} bytes", buffer.len());
             piece_hashes.push(hash_bytes(buffer).await);
         }
     }
@@ -316,7 +343,7 @@ async fn read_file(
     file: &TorrentDataFile,
     piece_size: u64,
     pieces: &[String],
-) -> Vec<String> {
+) -> Result<Vec<String>, Error> {
     let mut piece_hashes = Vec::new();
 
     let mut num_pieces: usize = ((buffer.len() as u64 + file.size) / piece_size)
@@ -334,26 +361,41 @@ async fn read_file(
 
     let piece_offset_from_file_start = if buffer.is_empty() { 0 } else { piece_size - buffer.len() as u64 };
 
+    debug!("file: {:?}, size {}", &file.path, file.size);
+    trace!("has {} pieces", num_pieces);
+    trace!("entering read_file with buffer size {} bytes", buffer.len());
     if file_size == file.size as u64 {
         let mut start_file = File::open(&file.path).unwrap();
         let mut futures = Vec::new();
         let mut file_invalid = false;
         let mut i = 0;
         while !file_invalid && i < num_pieces {
+            if i > 0 {
+                assert!(buffer.is_empty());
+            }
+            //println!("Piece {} of file", i);
             let mut to_read = piece_size;
             let mut read_bytes = Vec::new();
             if !buffer.is_empty() {
+                if buffer.len() as u64 > piece_size {
+                    //println!("Buffer has {} bytes, this is bigger than the piece size of {} bytes (by {} bytes). This is broken somewhere.", buffer.len(), piece_size, buffer.len() as u64 - piece_size);
+                }
                 assert!(buffer.len() as u64 <= piece_size);
                 read_bytes.append(buffer);
                 to_read -= read_bytes.len() as u64;
             }
-            if file.size - total_bytes_read < piece_size as u64 {
+            // if there aren't enough bytes left in the file
+            if file.size < to_read + total_bytes_read {
+                //println!("Was going to read {} bytes but there are {} bytes remaining of the file", to_read, file.size - total_bytes_read);
                 to_read = file.size - total_bytes_read;
             }
+            //println!("Have read {} bytes already, need to read {} bytes to complete the piece", read_bytes.len(), to_read);
 
             let mut read_buffer = read_bytes_from_file(&mut start_file, to_read.try_into().unwrap()).unwrap();
             let bytes_read = read_buffer.len();
             total_bytes_read += bytes_read as u64;
+            assert_eq!(bytes_read as u64, to_read);
+            assert!((read_bytes.len() + bytes_read) as u64 <= piece_size);
             if (read_bytes.len() + bytes_read) as u64 == piece_size {
                 read_bytes.append(&mut read_buffer);
                 let digest_future = hash_bytes(read_bytes);
@@ -365,7 +407,7 @@ async fn read_file(
                 if i == 0 {
                     let digest = result.await.unwrap();
                     if digest != pieces[i] {
-                        println!("Expected: {}, actual: {}", pieces[i], digest);
+                        debug!("Expected: {}, actual: {}", pieces[i], digest);
                         file_invalid = true;
                     }
                     piece_hashes.push(digest);
@@ -385,16 +427,17 @@ async fn read_file(
         if file_invalid {
             let pieces_to_fill = (piece_offset_from_file_start + ((num_pieces - 2) as u64 * piece_size)) / piece_size;
 
-            println!("File is invalid, have read {} bytes", total_bytes_read);
+            trace!("File is invalid, have read {} bytes", total_bytes_read);
             let skip_to_bytes =
-                total_bytes_read as u64 + (pieces_to_fill as u64 * piece_size) as u64;
-            println!(
-                "Have read {} bytes, there are {} pieces outstanding",
+                total_bytes_read as u64 + (pieces_to_fill * piece_size) as u64;
+            trace!(
+                "Have read {} bytes including, there are {} pieces outstanding",
                 total_bytes_read, pieces_to_fill
             );
             assert!(skip_to_bytes > 0);
             assert!(skip_to_bytes < file.size as u64);
 
+            debug!("Seeking to {} bytes from the start of the file.", skip_to_bytes);
             start_file.seek(SeekFrom::Start(skip_to_bytes)).unwrap();
 
             let to_read = file.size - skip_to_bytes;
@@ -409,9 +452,11 @@ async fn read_file(
             assert_eq!(total_bytes_read as u64, file_size);
         }
     } else {
+        error!("Expected file size {} - actual file size {}", file.size, file_size);
         buffer.clear();
     }
-    piece_hashes
+    trace!("Leaving read_file with {} bytes in the buffer", buffer.len());
+    Ok(piece_hashes)
 }
 
 fn read_bytes_from_file(file: &mut File, bytes_to_read: usize) -> Result<Vec<u8>, Error> {
@@ -429,4 +474,33 @@ async fn hash_bytes(bytes: Vec<u8>) -> String {
     let mut hasher = sha1::Sha1::new();
     hasher.update(&bytes);
     hasher.digest().to_string()
+}
+
+fn bootstrap_logger(quiet_mode: bool) -> Handle {
+
+    let level = if quiet_mode {
+        LevelFilter::Off
+    }
+    else {
+        LevelFilter::Info
+    };
+    let stdout = ConsoleAppender::builder()
+        .encoder(Box::new(PatternEncoder::new(
+            "[{d(%Y-%m-%d %H:%M:%S)}][{h({l})}] {m}{n}",
+        )))
+        .build();
+
+    let stdout_appender = Appender::builder().build("stdout", Box::new(stdout));
+    let config = log4rs::config::Config::builder()
+        .appender(stdout_appender)
+        .logger(
+            Logger::builder()
+                .appender("stdout")
+                .additive(false)
+                .build("stdout_log", LevelFilter::Trace),
+        )
+        .build(Root::builder().appender("stdout").build(level))
+        .unwrap();
+
+    log4rs::init_config(config).unwrap()
 }
