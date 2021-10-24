@@ -51,7 +51,7 @@ impl Clone for TorrentFile {
             md5sum = Some(String::from(md5sum_str.unwrap()));
         }
         Self {
-            path: self.path.to_owned(),
+            path: self.path.clone(),
             size: self.size,
             md5sum,
         }
@@ -65,42 +65,14 @@ struct Info {
     #[serde(rename = "piece length")]
     piece_length: u64,
     #[serde(default)]
-    md5sum: Option<String>,
-    #[serde(default)]
     length: Option<u64>,
     #[serde(default)]
-    files: Option<Vec<TorrentFile>>,
-    #[serde(default)]
-    private: Option<u8>,
-    #[serde(default)]
-    path: Option<Vec<String>>,
-    #[serde(default)]
-    #[serde(rename = "root hash")]
-    root_hash: Option<String>,
+    files: Option<Vec<TorrentFile>>
 }
 
 #[derive(Debug, Deserialize)]
 struct Torrent {
     info: Info,
-    #[serde(default)]
-    announce: Option<String>,
-    #[serde(default)]
-    nodes: Option<Vec<Node>>,
-    #[serde(default)]
-    encoding: Option<String>,
-    #[serde(default)]
-    httpseeds: Option<Vec<String>>,
-    #[serde(default)]
-    #[serde(rename = "announce-list")]
-    announce_list: Option<Vec<Vec<String>>>,
-    #[serde(default)]
-    #[serde(rename = "creation date")]
-    creation_date: Option<u64>,
-    #[serde(rename = "comment")]
-    comment: Option<String>,
-    #[serde(default)]
-    #[serde(rename = "created by")]
-    created_by: Option<String>,
 }
 
 #[tokio::main]
@@ -213,7 +185,6 @@ fn check_files(
 pub struct TorrentDataFile {
     path: PathBuf,
     size: u64,
-    md5sum: Option<String>,
 }
 fn get_file_list(torrent: &Torrent) -> Vec<TorrentDataFile> {
     let mut files = Vec::new();
@@ -228,30 +199,18 @@ fn get_file_list(torrent: &Torrent) -> Vec<TorrentDataFile> {
                 path.push(part);
             }
 
-            let mut md5sum = None;
-            if file.md5sum.is_some() {
-                let sum_string = file.md5sum.as_ref().unwrap();
-                md5sum = Some(String::from(sum_string));
-            }
             let torrent_file = TorrentDataFile {
                 path,
                 size: file.size,
-                md5sum,
             };
             files.push(torrent_file);
         }
     } else {
         let mut path = PathBuf::new();
         path.push(&torrent.info.name);
-        let mut md5sum = None;
-        if torrent.info.md5sum.is_some() {
-            let sum_string = torrent.info.md5sum.as_ref().unwrap();
-            md5sum = Some(String::from(sum_string));
-        }
         let torrent_file = TorrentDataFile {
             path,
             size: torrent.info.length.unwrap() as u64,
-            md5sum,
         };
         files.push(torrent_file);
     }
@@ -331,7 +290,7 @@ async fn calculate_hashes(
 
         if !buffer.is_empty() || pieces.len() - piece_hashes.len() == 1 {
             trace!("Buffer length is {} bytes", buffer.len());
-            piece_hashes.push(hash_bytes(buffer).await);
+            piece_hashes.push(hash_bytes(&buffer));
         }
     }
 
@@ -398,9 +357,8 @@ async fn read_file(
             assert!((read_bytes.len() + bytes_read) as u64 <= piece_size);
             if (read_bytes.len() + bytes_read) as u64 == piece_size {
                 read_bytes.append(&mut read_buffer);
-                let digest_future = hash_bytes(read_bytes);
                 let result = tokio::spawn(async move {
-                    let digest = digest_future.await;
+                    let digest = hash_bytes(&read_bytes);
                     let mut _hashes: Vec<String> = vec![String::new(); num_pieces];
                     digest
                 });
@@ -470,9 +428,9 @@ fn read_bytes_from_file(file: &mut File, bytes_to_read: usize) -> Result<Vec<u8>
     }
 }
 
-async fn hash_bytes(bytes: Vec<u8>) -> String {
+fn hash_bytes(bytes: &[u8]) -> String {
     let mut hasher = sha1::Sha1::new();
-    hasher.update(&bytes);
+    hasher.update(bytes);
     hasher.digest().to_string()
 }
 
