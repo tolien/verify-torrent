@@ -51,7 +51,7 @@ impl Clone for TorrentFile {
             md5sum = Some(String::from(md5sum_str.unwrap()));
         }
         Self {
-            path: self.path.to_owned(),
+            path: self.path.clone(),
             size: self.size,
             md5sum,
         }
@@ -331,7 +331,7 @@ async fn calculate_hashes(
 
         if !buffer.is_empty() || pieces.len() - piece_hashes.len() == 1 {
             trace!("Buffer length is {} bytes", buffer.len());
-            piece_hashes.push(hash_bytes(buffer).await);
+            piece_hashes.push(hash_bytes(&buffer));
         }
     }
 
@@ -398,9 +398,9 @@ async fn read_file(
             assert!((read_bytes.len() + bytes_read) as u64 <= piece_size);
             if (read_bytes.len() + bytes_read) as u64 == piece_size {
                 read_bytes.append(&mut read_buffer);
-                let digest_future = hash_bytes(read_bytes);
+                let digest_future = hash_bytes(&read_bytes);
                 let result = tokio::spawn(async move {
-                    let digest = digest_future.await;
+                    let digest = digest_future;
                     let mut _hashes: Vec<String> = vec![String::new(); num_pieces];
                     digest
                 });
@@ -470,9 +470,9 @@ fn read_bytes_from_file(file: &mut File, bytes_to_read: usize) -> Result<Vec<u8>
     }
 }
 
-async fn hash_bytes(bytes: Vec<u8>) -> String {
+fn hash_bytes(bytes: &[u8]) -> String {
     let mut hasher = sha1::Sha1::new();
-    hasher.update(&bytes);
+    hasher.update(bytes);
     hasher.digest().to_string()
 }
 
