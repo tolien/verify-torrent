@@ -108,26 +108,26 @@ async fn main() {
 
     let matches = App::new("torrent-verify")
         .arg(
-            Arg::with_name("file")
-                .short("-f")
+            Arg::new("file")
+                .short('f')
                 .help("Path to the torrent file to verify")
                 .takes_value(true)
                 .required(true),
         )
         .arg(
-            Arg::with_name("quiet")
-                .short("-q")
+            Arg::new("quiet")
+                .short('q')
                 .help("Quiet mode. Don't show progress.")
         )
         .arg(
-            Arg::with_name("list_type")
+            Arg::new("list_type")
                 .long("list")
                 .help("list files of type")
                 .takes_value(true)
                 .possible_values(&["notfound", "bad", "ok", "unverified"])
         )
         .arg(
-            Arg::with_name("list_type")
+            Arg::new("list_type")
                 .long("list0")
                 .help("list files of type, separated by nulls (ideal for xargs)")
                 .takes_value(true)
