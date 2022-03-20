@@ -5,9 +5,11 @@ extern crate sha1;
 extern crate serde_derive;
 extern crate clap;
 extern crate serde_bytes;
-use clap::{App, Arg};
+use base64ct::{Base64, Encoding};
+use clap::{Command, Arg};
 use serde_bencode::de;
 use serde_bytes::ByteBuf;
+use sha1::{Digest};
 use std::convert::TryInto;
 use std::fs;
 use std::fs::File;
@@ -15,6 +17,8 @@ use std::io::prelude::*;
 use std::io::SeekFrom;
 use std::io::Error;
 use std::path::PathBuf;
+use std::str;
+
 
 use log::{debug, error, info, trace};
 use log::LevelFilter;
@@ -106,7 +110,7 @@ struct Torrent {
 #[tokio::main]
 async fn main() {
 
-    let matches = App::new("torrent-verify")
+    let matches = Command::new("torrent-verify")
         .arg(
             Arg::new("file")
                 .short('f')
@@ -473,7 +477,7 @@ fn read_bytes_from_file(file: &mut File, bytes_to_read: usize) -> Result<Vec<u8>
 fn hash_bytes(bytes: &[u8]) -> String {
     let mut hasher = sha1::Sha1::new();
     hasher.update(bytes);
-    hasher.digest().to_string()
+    Base64::encode_string(hasher.finalize().as_slice())
 }
 
 fn bootstrap_logger(quiet_mode: bool) -> Handle {

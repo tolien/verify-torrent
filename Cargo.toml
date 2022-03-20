@@ -12,10 +12,11 @@ clap = "3.1.6"
 serde_derive = "1.0.136"
 serde_bytes = "0.11.5"
 serde = "1.0.136"
-sha1 = "0.6.0"
+sha1 = "0.10.1"
 tokio = { version = "1.17.0", features = ["full"] }
 log4rs = "1.0.0"
 log = "0.4.14"
+base64ct = { version = "1.4.1", features = ["alloc"] }
 
 [profile.dev]
 split-debuginfo = "unpacked"
