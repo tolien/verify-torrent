@@ -8,13 +8,13 @@ edition = "2018"
 
 [dependencies]
 serde_bencode = "0.2.3"
-clap = "3.2.23"
-serde_derive = "1.0.140"
-serde_bytes = "0.11.8"
+clap = "4.1.6"
+serde_derive = "1.0.152"
+serde_bytes = "0.11.9"
 serde = "1.0.152"
-sha1 = "0.10.1"
-tokio = { version = "1.20.1", features = ["full"] }
-log4rs = "1.1.1"
+sha1 = "0.10.5"
+tokio = { version = "1.25.0", features = ["full"] }
+log4rs = "1.2.0"
 log = "0.4.17"
 base64ct = { version = "1.5.3", features = ["alloc"] }
 

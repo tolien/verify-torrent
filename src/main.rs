@@ -114,8 +114,8 @@ async fn main() {
         .arg(
             Arg::new("file")
                 .short('f')
+                .long("config")
                 .help("Path to the torrent file to verify")
-                .takes_value(true)
                 .required(true),
         )
         .arg(
@@ -127,24 +127,22 @@ async fn main() {
             Arg::new("list_type")
                 .long("list")
                 .help("list files of type")
-                .takes_value(true)
-                .possible_values(&["notfound", "bad", "ok", "unverified"])
+                .value_parser(["notfound", "bad", "ok", "unverified"])
         )
         .arg(
             Arg::new("list_type")
                 .long("list0")
                 .help("list files of type, separated by nulls (ideal for xargs)")
-                .takes_value(true)
-                .possible_values(&["notfound", "bad", "ok", "unverified"])
+                .value_parser(["notfound", "bad", "ok", "unverified"])
         )
         .get_matches();
 
-    if let Some(torrent_file) = matches.value_of("file") {
+    if let Some(torrent_file) = matches.get_one::<String>("file") {
         let mut file = File::open(torrent_file).unwrap_or_else(|_| {
             panic!("Couldn't open torrent");
         });
 
-        let quiet_mode = matches.is_present("quiet");
+        let quiet_mode = matches.get_flag("quiet");
         bootstrap_logger(quiet_mode);
 
         info!("{}", format!("Checking torrent {:?}", torrent_file));
