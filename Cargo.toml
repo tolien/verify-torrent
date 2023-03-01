@@ -16,7 +16,7 @@ sha1 = "0.10.5"
 tokio = { version = "1.25.0", features = ["full"] }
 log4rs = "1.2.0"
 log = "0.4.17"
-base64ct = { version = "1.5.3", features = ["alloc"] }
+base64ct = { version = "1.6.0", features = ["alloc"] }
 
 [profile.dev]
 split-debuginfo = "unpacked"
