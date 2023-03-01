@@ -5,8 +5,8 @@ extern crate sha1;
 extern crate serde_derive;
 extern crate clap;
 extern crate serde_bytes;
-use base64ct::{Base64, Encoding};
 use clap::{Command, Arg};
+
 use serde_bencode::de;
 use serde_bytes::ByteBuf;
 use sha1::{Digest};
@@ -81,6 +81,8 @@ struct Info {
     #[serde(default)]
     #[serde(rename = "root hash")]
     root_hash: Option<String>,
+    #[serde(rename = "meta version")]
+    version: Option<u8>
 }
 
 #[derive(Debug, Deserialize)]
@@ -120,8 +122,10 @@ async fn main() {
         )
         .arg(
             Arg::new("quiet")
+                .long("quiet")
                 .short('q')
                 .help("Quiet mode. Don't show progress.")
+                .action(clap::ArgAction::SetTrue)
         )
         .arg(
             Arg::new("list_type")
@@ -144,6 +148,7 @@ async fn main() {
 
         let quiet_mode = matches.get_flag("quiet");
         bootstrap_logger(quiet_mode);
+        info!("Quiet mode is set to {:?}", quiet_mode);
 
         info!("{}", format!("Checking torrent {:?}", torrent_file));
         let mut buffer = Vec::new();
@@ -203,7 +208,7 @@ fn check_files(
                 info!("{}", format!("{:?}", file.path));
                 valid += 1;
             } else {
-                //println!("{:?} is not valid", file.path);
+                println!("{:?} is not valid", file.path);
                 invalid += 1;
             }
         }
@@ -454,7 +459,7 @@ async fn read_file(
             assert_eq!(total_bytes_read as u64, file_size);
         }
     } else {
-        error!("Expected file size {} - actual file size {}", file.size, file_size);
+        debug!("Expected file size {} - actual file size {}", file.size, file_size);
         buffer.clear();
     }
     trace!("Leaving read_file with {} bytes in the buffer", buffer.len());
@@ -474,8 +479,9 @@ fn read_bytes_from_file(file: &mut File, bytes_to_read: usize) -> Result<Vec<u8>
 
 fn hash_bytes(bytes: &[u8]) -> String {
     let mut hasher = sha1::Sha1::new();
+    trace!("Hashing {} bytes", bytes.len());
     hasher.update(bytes);
-    Base64::encode_string(hasher.finalize().as_slice())
+    format!("{:X}", hasher.finalize()).to_lowercase()
 }
 
 fn bootstrap_logger(quiet_mode: bool) -> Handle {
@@ -505,4 +511,22 @@ fn bootstrap_logger(quiet_mode: bool) -> Handle {
         .unwrap();
 
     log4rs::init_config(config).unwrap()
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::hash_bytes;
+    use hex_literal::hex;
+    use sha1::{Sha1, Digest};
+
+    #[test]
+    fn hash_and_encoding() {
+        let bytes = b"Nobody inspects the spammish repetition";
+
+       let mut hasher = Sha1::new();
+        hasher.update(bytes);
+        let result = hasher.finalize();
+        assert_eq!(result.as_slice(), hex!("531b07a0f5b66477a21742d2827176264f4bbfe2"));
+        assert_eq!(hash_bytes(bytes), "531b07a0f5b66477a21742d2827176264f4bbfe2");
+    }        
 }
