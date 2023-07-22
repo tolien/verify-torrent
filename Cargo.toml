@@ -16,6 +16,7 @@ sha1 = "0.10.5"
 tokio = { version = "1.29.1", features = ["full"] }
 log4rs = "1.2.0"
 log = "0.4.19"
+indicatif = "0.17.3"
 
 [dev-dependencies]
 hex-literal = "0.4.1"
