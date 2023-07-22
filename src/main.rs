@@ -7,6 +7,7 @@ extern crate clap;
 extern crate serde_bytes;
 use clap::{Command, Arg};
 
+use indicatif::ProgressBar;
 use serde_bencode::de;
 use serde_bytes::ByteBuf;
 use sha1::{Digest};
@@ -190,6 +191,7 @@ fn check_files(
         let mut matched;
         let mut valid = 0;
         let mut invalid = 0;
+        let file_progress = ProgressBar::new(file_list.len() as u64);
         for file in file_list {
             matched = true;
             let start_piece = total_bytes / piece_size;
@@ -211,7 +213,9 @@ fn check_files(
                 println!("{:?} is not valid", file.path);
                 invalid += 1;
             }
+            file_progress.inc(1);
         }
+        file_progress.finish();
         info!("{} ok, {} not ok", valid, invalid);
     }
 }
