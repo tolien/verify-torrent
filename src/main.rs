@@ -109,8 +109,7 @@ struct Torrent {
     created_by: Option<String>,
 }
 
-#[tokio::main]
-async fn main() {
+fn main() {
 
     let matches = Command::new("torrent-verify")
         .arg(
@@ -154,7 +153,7 @@ async fn main() {
         let mut buffer = Vec::new();
         match file.read_to_end(&mut buffer) {
             Ok(_) => match de::from_bytes::<Torrent>(&buffer) {
-                Ok(t) => verify_torrent(&t).await,
+                Ok(t) => verify_torrent(&t),
                 Err(e) => error!("ERROR: {:?}", e),
             },
             Err(e) => error!("ERROR: {:?}", e),
@@ -162,7 +161,7 @@ async fn main() {
     }
 }
 
-async fn verify_torrent(torrent: &Torrent) {
+fn verify_torrent(torrent: &Torrent) {
     let file_list = get_file_list(torrent);
     let piece_size = get_piece_size(torrent);
     let piece_hashes = get_piece_hashes(torrent);
@@ -173,7 +172,7 @@ async fn verify_torrent(torrent: &Torrent) {
         piece_size,
         piece_hashes.len()
     );
-    let pieces = calculate_hashes(&file_list, piece_size, &piece_hashes).await;
+    let pieces = calculate_hashes(&file_list, piece_size, &piece_hashes);
 
     check_files(&file_list, &pieces, &piece_hashes, piece_size);
 }
@@ -282,7 +281,7 @@ fn get_piece_hashes(torrent: &Torrent) -> Vec<String> {
     hashes
 }
 
-async fn calculate_hashes(
+fn calculate_hashes(
     file_list: &[TorrentDataFile],
     piece_size: u64,
     pieces: &[String],
@@ -300,7 +299,7 @@ async fn calculate_hashes(
                 piece_size,
                 &pieces[start_piece..pieces.len()],
             )
-            .await;
+            ;
             if let Ok(mut pieces_for_file) = pieces_result {
 
                 total_bytes_read += file.size;
@@ -345,7 +344,7 @@ async fn calculate_hashes(
     piece_hashes
 }
 
-async fn read_file(
+fn read_file(
     buffer: &mut Vec<u8>,
     file: &TorrentDataFile,
     piece_size: u64,
@@ -373,7 +372,6 @@ async fn read_file(
     trace!("entering read_file with buffer size {} bytes", buffer.len());
     if file_size == file.size as u64 {
         let mut start_file = File::open(&file.path).unwrap();
-        let mut futures = Vec::new();
         let mut file_invalid = false;
         let mut i = 0;
         while !file_invalid && i < num_pieces {
@@ -405,21 +403,15 @@ async fn read_file(
             assert!((read_bytes.len() + bytes_read) as u64 <= piece_size);
             if (read_bytes.len() + bytes_read) as u64 == piece_size {
                 read_bytes.append(&mut read_buffer);
-                let digest_future = hash_bytes(&read_bytes);
-                let result = tokio::spawn(async move {
-                    let digest = digest_future;
-                    let mut _hashes: Vec<String> = vec![String::new(); num_pieces];
-                    digest
-                });
+                let digest = hash_bytes(&read_bytes);
                 if i == 0 {
-                    let digest = result.await.unwrap();
                     if digest != pieces[i] {
                         debug!("Expected: {}, actual: {}", pieces[i], digest);
                         file_invalid = true;
                     }
                     piece_hashes.push(digest);
                 } else {
-                    futures.push(result);
+                    piece_hashes.push(digest);
                 }
                 buffer.clear();
             } else if bytes_read > 0 {
@@ -453,9 +445,6 @@ async fn read_file(
             buffer.append(&mut read_buffer);
             assert_eq!(buffer.len() as u64, to_read);
         } else {
-            for future in futures {
-                piece_hashes.push(future.await.unwrap());
-            }
             assert_eq!(total_bytes_read as u64, file_size);
         }
     } else {
