@@ -9,6 +9,9 @@ use std::fs::File;
 use std::io::prelude::*;
 use std::io::Error;
 
+use std::sync::mpsc;
+use std::thread;
+
 fn main() {
     let matches = Command::new("torrent-verify")
         .arg(
@@ -59,7 +62,9 @@ fn read_file(file: &mut File, piece_size: u64) {
     println!("has {} pieces", num_pieces);
     println!("entering read_file");
     let mut i = 0;
+
     while i < num_pieces {
+        let (tx, rx) = mpsc::channel();
         //println!("Piece {} of file", i);
         let mut to_read = piece_size;
         let mut read_bytes = Vec::new();
@@ -77,7 +82,14 @@ fn read_file(file: &mut File, piece_size: u64) {
         assert!((read_bytes.len() + bytes_read) as u64 <= piece_size);
         if (read_bytes.len() + bytes_read) as u64 == piece_size {
             read_bytes.append(&mut read_buffer);
-            piece_hashes.push(hash_bytes(&read_buffer));
+
+            thread::spawn(move || {
+                let val = hash_bytes(&read_buffer);
+                tx.send(val).unwrap();
+            });
+
+            let received = rx.recv().unwrap();
+            piece_hashes.push(received);
         }
         i += 1;
     }
