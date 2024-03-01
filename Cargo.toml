@@ -15,7 +15,7 @@ serde = "1.0.196"
 sha1 = "0.10.6"
 tokio = { version = "1.35.1", features = ["full"] }
 log4rs = "1.2.0"
-log = "0.4.20"
+log = "0.4.21"
 
 [dev-dependencies]
 hex-literal = "0.4.1"
