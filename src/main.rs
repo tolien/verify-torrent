@@ -470,7 +470,17 @@ fn hash_bytes(bytes: &[u8]) -> String {
     let mut hasher = sha1::Sha1::new();
     trace!("Hashing {} bytes", bytes.len());
     hasher.update(bytes);
-    format!("{:X}", hasher.finalize()).to_lowercase()
+
+    let hash = hasher.finalize();
+    let mut owned_string: String = Default::default();
+
+    // used to do this, which did the conversion in one go
+    //format!("{:X}", hash).to_lowercase()
+    for decimal in hash.iter() {
+        owned_string.push_str(&format!("{:02X}", decimal).to_lowercase());
+    }
+
+    owned_string
 }
 
 fn bootstrap_logger(quiet_mode: bool) -> Handle {
